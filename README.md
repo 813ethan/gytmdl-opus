@@ -84,6 +84,8 @@ gytmdl [OPTIONS] URLS...
 
 ## Configuration
 
+### Non Opus codecs are not supported for now. Use  `-i [251/250/249]` to download.
+
 Gytmdl can be configured by using the command line arguments or the config file.
 
 The config file is created automatically when you run Gytmdl for the first time at `~/.gytmdl/config.json` on Linux/macOS and `%USERPROFILE%\.gytmdl\config.json` on Windows.
