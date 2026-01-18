@@ -7,12 +7,14 @@ import re
 import shutil
 import subprocess
 import typing
+import base64
 from pathlib import Path
 
 import requests
 from InquirerPy import inquirer
 from InquirerPy.base.control import Choice
-from mutagen.mp4 import MP4, MP4Cover
+from mutagen.oggopus import OggOpus
+from mutagen.flac import Picture
 from PIL import Image
 from yt_dlp import YoutubeDL
 from yt_dlp.extractor.youtube import YoutubeTabIE
@@ -31,7 +33,7 @@ class Downloader:
         cookies_path: Path = None,
         ffmpeg_path: str = "ffmpeg",
         aria2c_path: str = "aria2c",
-        itag: str = "140",
+        itag: str = "251",
         download_mode: DownloadMode = DownloadMode.YTDLP,
         po_token: str = None,
         cover_size: int = "1200",
@@ -84,7 +86,7 @@ class Downloader:
             "no_warnings": True,
             "noprogress": self.silent,
             "allowed_extractors": ["youtube", "youtube:tab"],
-            "extractor_args": {"youtube": extractor_args},
+            #"extractor_args": {"youtube": extractor_args},
         }
         if self.cookies_path is not None:
             self.ytdlp_options["cookiefile"] = str(self.cookies_path)
@@ -212,10 +214,10 @@ class Downloader:
         )
         tags = {
             "album": ytmusic_album["title"],
-            "album_artist": self._get_artist(ytmusic_album["artists"]),
+            "albumartist": self._get_artist(ytmusic_album["artists"]),
             "artist": self._get_artist(ytmusic_watch_playlist["tracks"][0]["artists"]),
-            "url": f"https://music.youtube.com/watch?v={video_id}",
-            "media_type": 1,
+            "purl": f"https://music.youtube.com/watch?v={video_id}",
+            #"media_type": 1,
             "title": ytmusic_watch_playlist["tracks"][0]["title"],
             "track_total": ytmusic_album["trackCount"],
             "video_id": video_id,
@@ -227,9 +229,9 @@ class Downloader:
         ):
             if entry["id"] == video_id:
                 if ytmusic_album["tracks"][index]["isExplicit"]:
-                    tags["rating"] = 1
+                    tags["itunesadvisory"] = "1"
                 else:
-                    tags["rating"] = 0
+                    tags["itunesadvisory"] = "0"
                 tags["track"] = index + 1
                 break
         if ytmusic_watch_playlist.get("lyrics"):
@@ -293,10 +295,10 @@ class Downloader:
         return dirty_string.strip()
 
     def get_track_temp_path(self, video_id: str) -> Path:
-        return self.temp_path / f"{video_id}_temp.m4a"
+        return self.temp_path / f"{video_id}_temp.webm"
 
     def get_remuxed_path(self, video_id: str) -> Path:
-        return self.temp_path / f"{video_id}_remuxed.m4a"
+        return self.temp_path / f"{video_id}_remuxed.opus"
 
     def get_cover_path(self, final_path: Path, file_extension: str) -> Path:
         return final_path.parent / ("Cover" + file_extension)
@@ -312,7 +314,7 @@ class Downloader:
             for i in final_path_file[:-1]
         ] + [
             self.get_sanitized_string(final_path_file[-1].format(**tags), False)
-            + ".m4a"
+            + ".opus"
         ]
         return self.output_path.joinpath(*final_path_folder).joinpath(*final_path_file)
 
@@ -342,19 +344,10 @@ class Downloader:
             "-i",
             temp_path,
         ]
-        if self.itag not in ("141", "140", "139"):
-            command.extend(
-                [
-                    "-f",
-                    "mp4",
-                ]
-            )
         subprocess.run(
             [
                 *command,
-                "-movflags",
-                "+faststart",
-                "-c",
+                "-c:a",
                 "copy",
                 remuxed_path,
             ],
@@ -390,42 +383,38 @@ class Downloader:
         to_apply_tags = [
             tag_name for tag_name in tags.keys() if tag_name not in self.exclude_tags
         ]
-        mp4_tags = {}
+
+        opus = OggOpus(path)
+        opus.clear()
+
         for tag_name in to_apply_tags:
             if tag_name in ("disc", "disc_total"):
-                if mp4_tags.get("disk") is None:
-                    mp4_tags["disk"] = [[0, 0]]
                 if tag_name == "disc":
-                    mp4_tags["disk"][0][0] = tags[tag_name]
+                    opus["discnumber"] = str(tags[tag_name])
                 elif tag_name == "disc_total":
-                    mp4_tags["disk"][0][1] = tags[tag_name]
+                    opus["disctotal"] = str(tags[tag_name])
             elif tag_name in ("track", "track_total"):
-                if mp4_tags.get("trkn") is None:
-                    mp4_tags["trkn"] = [[0, 0]]
                 if tag_name == "track":
-                    mp4_tags["trkn"][0][0] = tags[tag_name]
+                    opus["tracknumber"] = str(tags[tag_name])
                 elif tag_name == "track_total":
-                    mp4_tags["trkn"][0][1] = tags[tag_name]
+                    opus["tracktotal"] = str(tags[tag_name])
             if (
                 MP4_TAGS_MAP.get(tag_name) is not None
                 and tags.get(tag_name) is not None
             ):
-                mp4_tags[MP4_TAGS_MAP[tag_name]] = [tags[tag_name]]
+                opus[tag_name] = [tags[tag_name]]
         if "cover" not in self.exclude_tags and self.cover_format != CoverFormat.RAW:
-            mp4_tags["covr"] = [
-                MP4Cover(
-                    self.get_url_response_bytes(cover_url),
-                    imageformat=(
-                        MP4Cover.FORMAT_JPEG
-                        if self.cover_format == CoverFormat.JPG
-                        else MP4Cover.FORMAT_PNG
-                    ),
-                )
-            ]
-        mp4 = MP4(path)
-        mp4.clear()
-        mp4.update(mp4_tags)
-        mp4.save()
+            pic = Picture()
+            pic.data = self.get_url_response_bytes(cover_url)
+            if self.cover_format == CoverFormat.JPG:
+                pic.mime = "image/jpeg"
+            else:
+                pic.mime = "image/png"
+
+            pic_data = base64.b64encode(pic.write()).decode('ascii')
+            opus["metadata_block_picture"] = [pic_data]
+
+        opus.save()
 
     def move_to_output_path(
         self,
@@ -441,3 +430,4 @@ class Downloader:
 
     def cleanup_temp_path(self):
         shutil.rmtree(self.temp_path)
+    
