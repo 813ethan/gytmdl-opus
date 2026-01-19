@@ -406,6 +406,7 @@ class Downloader:
         if "cover" not in self.exclude_tags and self.cover_format != CoverFormat.RAW:
             pic = Picture()
             pic.data = self.get_url_response_bytes(cover_url)
+            pic.type = 3
             if self.cover_format == CoverFormat.JPG:
                 pic.mime = "image/jpeg"
             else:
