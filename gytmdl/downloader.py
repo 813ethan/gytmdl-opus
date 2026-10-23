@@ -80,13 +80,13 @@ class Downloader:
             else:
                 extractor_args["po_token"] = [self.po_token]
         else:
-            extractor_args["player_client"] = ["tv"]
+            extractor_args["player_client"] = ["default"]
         self.ytdlp_options = {
             "quiet": True,
             "no_warnings": True,
             "noprogress": self.silent,
             "allowed_extractors": ["youtube", "youtube:tab"],
-            #"extractor_args": {"youtube": extractor_args},
+            "extractor_args": {"youtube": extractor_args},
         }
         if self.cookies_path is not None:
             self.ytdlp_options["cookiefile"] = str(self.cookies_path)

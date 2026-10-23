@@ -216,6 +216,13 @@ def load_config_file(
     default=downloader_sig.parameters["truncate"].default,
     help="Maximum length of the file/folder names.",
 )
+@click.option(
+    "--playlist-items",
+    "-l",
+    type=str,
+    default=None,
+    help='Specify which items in a playlist to download (e.g., "1,3,5-8")',
+)
 # This option should always be last
 @click.option(
     "--no-config-file",
@@ -250,6 +257,7 @@ def main(
     no_synced_lyrics: bool,
     synced_lyrics_only: bool,
     truncate: int,
+    playlist_items: str,
     no_config_file: bool,
 ):
     colorama.just_fix_windows_console()
@@ -296,7 +304,7 @@ def main(
         template_file,
         template_date,
         exclude_tags,
-        truncate,
+        truncate
     )
     error_count = 0
     download_queue = []
@@ -312,6 +320,19 @@ def main(
                 exc_info=not no_exceptions,
             )
             continue
+        if playlist_items:
+            allowed_indices = set()
+            for part in playlist_items.split(','):
+                if '-' in part:
+                    start, end = part.split('-')
+                    allowed_indices.update(range(int(start), int(end) + 1))
+                else:
+                    allowed_indices.add(int(part))
+             # Filter the queue to only include the allowed track numbers (1-indexed)
+            download_queue = [
+                item for i, item in enumerate(download_queue, start=1)
+                    if i in allowed_indices
+            ]
         for queue_index, queue_item in enumerate(download_queue, start=1):
             queue_progress = color_text(
                 f"Track {queue_index}/{len(download_queue)} from URL {url_index}/{len(urls)}",
